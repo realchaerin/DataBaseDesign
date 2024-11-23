@@ -1,0 +1,19 @@
+# 가상환경 디렉토리
+venv/
+ENV/
+env/
+.venv/
+.pyenv/
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter Notebook 체크포인트
+.ipynb_checkpoints/
+
+# 기타 무시할 파일
+*.db
+*.log

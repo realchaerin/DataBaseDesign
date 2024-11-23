@@ -1,0 +1,9 @@
+streamlit
+pymysql
+tensorflow
+requests
+pandas
+scikit-learn
+konlpy
+python-dotenv
+bcrypt
