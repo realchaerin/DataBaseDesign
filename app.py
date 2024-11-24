@@ -36,17 +36,16 @@ from api_fetch import (
     get_tmdb_movie_details,
     get_tmdb_movie_credits
 )
-
 # CSS 적용
 st.markdown("""
 <style>
 .title {
-    color: #1f77b4;  /* 기본 파란색으로 설정 */
+    color: #B22222;  /* 어두운 빨간색으로 설정 */
     text-align: center;
 }
 
 .stButton > button {
-    background-color: #1f77b4;
+    background-color: #B22222;
     color: white;
     border-radius: 5px;
     padding: 10px 20px;
@@ -58,10 +57,24 @@ st.markdown("""
     border-radius: 5px;
     border: 1px solid #ccc;
 }
+
+/* 내 리뷰 보기 버튼 오른쪽 상단 배치 */
+.reviews-button {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background-color: #B22222;
+    color: white;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 class="title">리뷰 기반 영화 추천 시스템</h1>', unsafe_allow_html=True)
+# 페이지 제목과 부제목
+st.markdown('<h1 class="title">무비뭐봐🎬</h1>', unsafe_allow_html=True)
+st.markdown('<p style="text-align: center;">리뷰 기반 영화 추천 시스템</p>', unsafe_allow_html=True)
 
 # 세션 상태 관리
 if 'logged_in' not in st.session_state:
