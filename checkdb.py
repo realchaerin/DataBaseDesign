@@ -2,8 +2,7 @@ import pymysql
 import os
 from dotenv import load_dotenv
 
-# 환경 변수 로드
-load_dotenv()
+load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
 
 DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER')
@@ -54,7 +53,7 @@ def get_movies_by_genre(genre_id, exclude_movie_id, limit=5):
     finally:
         conn.close()
 
-def save_review(user_id, movie_id, review_text, sentiment):
+def save_review(username, movie_id, review_text, sentiment):
     """사용자의 리뷰를 데이터베이스에 저장"""
     conn = get_db_connection()
     try:
@@ -63,12 +62,12 @@ def save_review(user_id, movie_id, review_text, sentiment):
             INSERT INTO REVIEW (user_id, movie_id, review_text, sentiment)
             VALUES (%s, %s, %s, %s)
             """
-            cur.execute(sql, (user_id, movie_id, review_text, sentiment))
+            cur.execute(sql, (username, movie_id, review_text, sentiment))
             conn.commit()
     finally:
         conn.close()
 
-def create_user(username, password, name):
+def create_user(user_id, password, username):
     """새로운 사용자를 생성하고 비밀번호를 해싱하여 저장"""
     import bcrypt
     conn = get_db_connection()
@@ -76,22 +75,22 @@ def create_user(username, password, name):
         with conn.cursor() as cur:
             hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             sql = """
-            INSERT INTO USER (username, password, name)
+            INSERT INTO USER (user_id, password, username)
             VALUES (%s, %s, %s)
             """
-            cur.execute(sql, (username, hashed_pw, name))
+            cur.execute(sql, (user_id, hashed_pw, username))
             conn.commit()
     finally:
         conn.close()
 
-def verify_user(username, password):
-    """사용자 이름과 비밀번호를 검증"""
+def verify_user(user_id, password):
+    """사용자 ID와 비밀번호를 검증"""
     import bcrypt
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            sql = "SELECT user_id, password FROM USER WHERE username = %s"
-            cur.execute(sql, (username,))
+            sql = "SELECT user_id, password FROM USER WHERE user_id = %s"
+            cur.execute(sql, (user_id,))
             user = cur.fetchone()
             if user and bcrypt.checkpw(password.encode('utf-8'), user['password'].encode('utf-8')):
                 return user['user_id']
@@ -99,7 +98,7 @@ def verify_user(username, password):
     finally:
         conn.close()
 
-def insert_movie(movie_data, tmdb_data=None, tmdb_credits=None):
+def insert_movie(tmdb_data=None, tmdb_credits=None):
     """영화 데이터를 MOVIE 테이블에 삽입합니다."""
     conn = get_db_connection()
     try:
@@ -109,7 +108,7 @@ def insert_movie(movie_data, tmdb_data=None, tmdb_credits=None):
             if tmdb_data and 'genres' in tmdb_data:
                 genre_names = [genre['name'] for genre in tmdb_data['genres']]
             
-            # GENRE 테이블에서 genre_id 찾기 (여러 장르가 있을 수 있으므로 첫 번째 장르 사용)
+            # GENRE 테이블에서 genre_id 찾기
             genre_id = None
             if genre_names:
                 first_genre = genre_names[0]
@@ -119,37 +118,18 @@ def insert_movie(movie_data, tmdb_data=None, tmdb_credits=None):
                 if genre_result:
                     genre_id = genre_result['genre_id']
                 else:
-                    # GENRE 테이블에 장르가 없으면 추가
-                    sql_insert_genre = "INSERT INTO GENRE (genre_id, genre_name) VALUES (%s, %s)"
-                    # 간단하게 첫 세 글자로 genre_id 생성
-                    new_genre_id = first_genre[:3].upper()
-                    cur.execute(sql_insert_genre, (new_genre_id, first_genre))
-                    genre_id = new_genre_id
+                    # 장르 추가
+                    sql_insert_genre = "INSERT INTO GENRE (genre_name) VALUES (%s)"
+                    cur.execute(sql_insert_genre, (first_genre,))
+                    genre_id = cur.lastrowid
             
-            # 감독 및 배우 정보 파싱
-            if tmdb_credits:
-                directors = [crew['name'] for crew in tmdb_credits.get('crew', []) if crew['job'] == 'Director']
-                director = ', '.join(directors) if directors else 'N/A'
-                
-                cast = [cast_member['name'] for cast_member in tmdb_credits.get('cast', [])[:5]]  # 상위 5명
-                cast_str = ', '.join(cast) if cast else 'N/A'
-            else:
-                director = 'N/A'
-                cast_str = 'N/A'
-    
-            # 제작사 정보 파싱
-            if tmdb_data:
-                production_companies = [company['name'] for company in tmdb_data.get('production_companies', [])]
-                production_company = ', '.join(production_companies) if production_companies else 'N/A'
-            else:
-                production_company = 'N/A'
-    
-            # MOVIE 테이블에 삽입 또는 업데이트
+            # 영화 삽입
             sql = """
             INSERT INTO MOVIE (movie_name, genre_id, tmdb_id, original_title, release_date, runtime, overview, director, cast, production_company)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
-                tmdb_id = VALUES(tmdb_id),
+                movie_name = VALUES(movie_name),
+                genre_id = VALUES(genre_id),
                 original_title = VALUES(original_title),
                 release_date = VALUES(release_date),
                 runtime = VALUES(runtime),
@@ -166,10 +146,46 @@ def insert_movie(movie_data, tmdb_data=None, tmdb_credits=None):
                 tmdb_data.get('release_date') if tmdb_data else None,
                 tmdb_data.get('runtime') if tmdb_data else None,
                 tmdb_data.get('overview') if tmdb_data else None,
-                director,
-                cast_str,
-                production_company
+                ', '.join([crew['name'] for crew in tmdb_credits.get('crew', []) if crew['job'] == 'Director']) if tmdb_credits else 'N/A',
+                ', '.join([cast['name'] for cast in tmdb_credits.get('cast', [])[:5]]) if tmdb_credits else 'N/A',
+                ', '.join([company['name'] for company in tmdb_data.get('production_companies', [])]) if tmdb_data else 'N/A'
             ))
             conn.commit()
     finally:
         conn.close()
+
+def recommend_movies_based_on_reviews(user_id, limit=5):
+    """사용자의 리뷰 감정을 기반으로 영화를 추천"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            sql = """
+            SELECT movie_id, AVG(sentiment) as avg_sentiment
+            FROM REVIEW
+            WHERE user_id = %s
+            GROUP BY movie_id
+            ORDER BY avg_sentiment DESC
+            LIMIT %s
+            """
+            cur.execute(sql, (user_id, limit))
+            results = cur.fetchall()
+            return [row['movie_id'] for row in results]
+    finally:
+        conn.close()
+
+if __name__ == "__main__":
+    try:
+        print("Connecting to DB with:")
+        print(f"HOST: {DB_HOST}, USER: {DB_USER}, PASSWORD: {DB_PASSWORD}, DB_NAME: {DB_NAME}")
+        
+        conn = get_db_connection()
+        print("데이터베이스 연결 성공!")
+        with conn.cursor() as cur:
+            cur.execute("SHOW TABLES;")
+            tables = cur.fetchall()
+            print("테이블 목록:", tables)
+    except Exception as e:
+        print(f"데이터베이스 연결 실패: {e}")
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
