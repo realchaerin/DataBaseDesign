@@ -3,8 +3,9 @@ from checkdb import (
     save_review,
     create_user,
     verify_user,
-    insert_movie,
-    recommend_movies_based_on_reviews
+    insert_movie_if_not_exists,
+    recommend_movies_based_on_reviews,
+    check_review_exists
 )
 import sys
 import os
@@ -28,7 +29,7 @@ st.set_page_config(
 )
 
 sys.path.append(os.path.abspath("C:/Users/you0m/Desktop/movie/utils"))
-from api_fetch import (
+from utils.api_fetch import (
     search_tmdb_movie,
     get_tmdb_movie_details,
     get_tmdb_movie_credits
@@ -131,95 +132,90 @@ if not st.session_state.logged_in:
             st.session_state.show_signup = True
 
 else:
-    if st.session_state.review_saved:
-        st.success("리뷰가 저장되었습니다.")
-        sentiment = st.session_state.sentiment
-        satisfaction = "Good" if sentiment == "positive" else "Bad"
-        st.write(f"만족도: {satisfaction}")
+    st.header('영화 검색')
 
-        if satisfaction == "Bad":
-            st.warning("만족도가 낮아 랜덤 영화를 추천합니다:")
-            with pymysql.connect(
-                host=DB_HOST,
-                user=DB_USER,
-                password=DB_PASSWORD,
-                db=DB_NAME,
-                charset='utf8mb4',
-                cursorclass=pymysql.cursors.DictCursor
-            ) as conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT movie_name FROM MOVIE ORDER BY RAND() LIMIT 5;")
-                    random_movies = cur.fetchall()
-                    for movie in random_movies:
-                        st.write(f"- {movie['movie_name']}")
-        else:
-            st.subheader("추천 영화")
-            recommended_movies = recommend_movies_based_on_reviews(st.session_state.user_id, limit=5)
-            if recommended_movies:
-                with pymysql.connect(
-                    host=DB_HOST,
-                    user=DB_USER,
-                    password=DB_PASSWORD,
-                    db=DB_NAME,
-                    charset='utf8mb4',
-                    cursorclass=pymysql.cursors.DictCursor
-                ) as conn:
-                    for movie_id in recommended_movies:
-                        with conn.cursor() as cur:
-                            cur.execute("SELECT movie_name FROM MOVIE WHERE movie_id = %s", (movie_id,))
-                            result = cur.fetchone()
-                            if result:
-                                st.write(f"- {result['movie_name']}")
-            else:
-                st.write("추천할 영화가 없습니다.")
+    search_query = st.text_input('영화 이름을 입력하세요')
 
-        if st.button("다시 영화 검색하기"):
-            st.session_state.review_saved = False
-            st.session_state.selected_movie_id = None
-    else:
-        st.header('영화 검색')
+    if st.button('검색'):
+        if search_query:
+            search_results = search_tmdb_movie(search_query)
+            if search_results and 'results' in search_results and len(search_results['results']) > 0:
+                movie_data = search_results['results'][0]
+                tmdb_id = movie_data['id']
+                
+                tmdb_movie_details = get_tmdb_movie_details(tmdb_id)
+                tmdb_movie_credits = get_tmdb_movie_credits(tmdb_id)
 
-        search_query = st.text_input('영화 이름을 입력하세요')
+                if tmdb_movie_details:
+                    st.subheader("TMDB 영화 상세 정보")
 
-        if st.button('검색'):
-            if search_query:
-                search_results = search_tmdb_movie(search_query)
-                if search_results and 'results' in search_results and len(search_results['results']) > 0:
-                    movie_data = search_results['results'][0]
-                    tmdb_id = movie_data['id']
-                    
-                    tmdb_movie_details = get_tmdb_movie_details(tmdb_id)
-                    tmdb_movie_credits = get_tmdb_movie_credits(tmdb_id)
-
-                    if tmdb_movie_details:
-                        st.subheader("TMDB 영화 상세 정보")
-
-                        col1, col2 = st.columns([2, 1])
-                        with col1:
-                            st.write(f"**영화명:** {tmdb_movie_details.get('title', 'N/A')}")
-                            st.write(f"**영화명(영문):** {tmdb_movie_details.get('original_title', 'N/A')}")
-                            st.write(f"**개봉일:** {tmdb_movie_details.get('release_date', 'N/A')}")
-                            st.write(f"**상영시간:** {tmdb_movie_details.get('runtime', 'N/A')} 분")
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        st.write(f"**영화명:** {tmdb_movie_details.get('title', 'N/A')}")
+                        st.write(f"**영화명(영문):** {tmdb_movie_details.get('original_title', 'N/A')}")
+                        st.write(f"**개봉일:** {tmdb_movie_details.get('release_date', 'N/A')}")
+                        st.write(f"**상영시간:** {tmdb_movie_details.get('runtime', 'N/A')} 분")
                         st.markdown(f"<div class='movie-overview'>{tmdb_movie_details.get('overview', 'N/A')}</div>", unsafe_allow_html=True)
 
-                        with col2:
-                            poster_path = tmdb_movie_details.get('poster_path')
-                            if poster_path:
-                                poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-                                st.image(poster_url, width=150)
+                    with col2:
+                        poster_path = tmdb_movie_details.get('poster_path')
+                        if poster_path:
+                            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+                            st.image(poster_url, width=150)
 
-                        movie_id = insert_movie(tmdb_movie_details, tmdb_movie_credits)
-                        st.session_state.selected_movie_id = movie_id
-                    else:
-                        st.error("영화 상세 정보를 가져오는 데 실패했습니다.")
+                    # 영화가 이미 DB에 있는지 확인
+                    movie_id = insert_movie_if_not_exists(tmdb_movie_details, tmdb_movie_credits)
+                    st.session_state.selected_movie_id = movie_id
+                    st.success("영화 정보가 저장되었습니다. 이제 리뷰를 작성해주세요.")
                 else:
-                    st.warning("검색 결과가 없습니다.")
+                    st.error("영화 상세 정보를 가져오는 데 실패했습니다.")
             else:
-                st.error("영화 이름을 입력해주세요.")
+                st.warning("검색 결과가 없습니다.")
+        else:
+            st.error("영화 이름을 입력해주세요.")
 
-        if st.session_state.selected_movie_id:
-            review_text = st.text_area('리뷰를 작성하세요')
+    # 영화가 선택된 경우에만 리뷰 작성 섹션 표시
+    if st.session_state.selected_movie_id:
+        # 해당 영화에 대한 리뷰가 이미 존재하는지 확인
+        review_exists = check_review_exists(st.session_state.user_id, st.session_state.selected_movie_id)
+        if review_exists:
+            st.warning("해당 영화에 대한 리뷰가 이미 존재합니다.")
+        else:
+            st.subheader("리뷰 작성")
+            review_text = st.text_area('영화에 대한 리뷰를 작성하세요', key="review_text")
+
             if st.button('리뷰 제출'):
                 if review_text:
                     sentiment = predict_sentiment(review_text)
-                   
+                    st.session_state.review_saved = True
+                    
+                    # 리뷰를 데이터베이스에 저장
+                    save_review(st.session_state.user_id, st.session_state.selected_movie_id, review_text, sentiment)
+                    
+                    st.success("리뷰가 저장되었습니다.")
+                    
+                    if sentiment == "positive":
+                        # 같은 장르의 영화 5개 추천
+                        recommended_movies = recommend_movies_based_on_reviews(st.session_state.user_id, limit=5)
+                        if recommended_movies:
+                            st.subheader('추천 영화')
+                            with pymysql.connect(
+                                host=DB_HOST,
+                                user=DB_USER,
+                                password=DB_PASSWORD,
+                                db=DB_NAME,
+                                charset='utf8mb4',
+                                cursorclass=pymysql.cursors.DictCursor
+                            ) as conn:
+                                for movie_id in recommended_movies:
+                                    with conn.cursor() as cur:
+                                        cur.execute("SELECT movie_name FROM movie_list WHERE movie_id = %s", (movie_id,))
+                                        result = cur.fetchone()
+                                        if result:
+                                            st.write(f"- {result['movie_name']}")
+                        else:
+                            st.write("추천할 영화가 없습니다.")
+                    else:
+                        st.warning("부정적인 리뷰이므로 추천하지 않습니다.")
+                else:
+                    st.error("리뷰를 작성해주세요.")
