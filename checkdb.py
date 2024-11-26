@@ -1,10 +1,13 @@
 import pymysql
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 import os
 from dotenv import load_dotenv
 import bcrypt
+import random
 
 # 환경 변수 로드
-load_dotenv()
+load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
 
 DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER')
@@ -39,7 +42,6 @@ def insert_movie_list(movie_data):
         return
     try:
         with conn.cursor() as cur:
-            # **변경 사항: 실제 genre_id를 사용하도록 수정**
             sql = """
             INSERT INTO movie_list (movie_name, genre_id, tmdb_id, original_title, release_date, runtime, overview, director, cast, production_company)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -57,7 +59,7 @@ def insert_movie_list(movie_data):
             try:
                 cur.execute(sql, (
                     movie_data['title'],
-                    movie_data['genre_id'],
+                    movie_data['genre_id'],  # 장르 ID 저장
                     movie_data['tmdb_id'],
                     movie_data['original_title'],
                     movie_data['release_date'],
@@ -76,7 +78,7 @@ def insert_movie_list(movie_data):
 
 
 def insert_movie_if_not_exists(tmdb_data=None, tmdb_credits=None):
-    """영화가 존재하지 않을 경우 MOVIE 테이블에 삽입합니다."""
+    """영화와 장르 데이터를 MOVIE 테이블에 저장"""
     conn = get_db_connection()
     if not conn:
         print("Database connection failed.")
@@ -93,37 +95,16 @@ def insert_movie_if_not_exists(tmdb_data=None, tmdb_credits=None):
             cur.execute(sql_check, (tmdb_id,))
             result = cur.fetchone()
             if result:
-                # 영화가 이미 존재하면 아무 작업도 수행하지 않음
                 return result['movie_id']
 
-            # 영화가 존재하지 않을 경우 삽입
-            genre_names = [genre['name'] for genre in tmdb_data['genres']] if tmdb_data and 'genres' in tmdb_data else []
+            # TMDB 데이터에서 장르 ID 가져오기
+            genres = tmdb_data.get('genres', [])
+            genre_id = genres[0]['id'] if genres else 'UNKNOWN'
 
-            # GENRE 테이블에서 genre_id 찾기
-            genre_id = 'UNKNOWN'
-            if genre_names:
-                first_genre = genre_names[0]
-                sql_genre = "SELECT genre_id FROM GENRE WHERE genre_name = %s"
-                cur.execute(sql_genre, (first_genre,))
-                genre_result = cur.fetchone()
-                if genre_result:
-                    genre_id = genre_result['genre_id']
-                else:
-                    # 장르 추가
-                    new_genre_id = first_genre[:3].upper()  # 장르 ID를 첫 세 글자로 생성
-                    try:
-                        sql_insert_genre = "INSERT INTO GENRE (genre_id, genre_name) VALUES (%s, %s)"
-                        cur.execute(sql_insert_genre, (new_genre_id, first_genre))
-                        genre_id = new_genre_id
-                        print(f"Inserted new genre: {first_genre} with ID {new_genre_id}")
-                    except pymysql.MySQLError as e:
-                        print(f"Error inserting new genre '{first_genre}': {e}")
-                        genre_id = 'UNKNOWN'  # 장르 삽입 실패 시 'UNKNOWN'으로 설정
-
-            # 영화 삽입, 기본값 추가
+            # 영화 데이터 삽입
             movie_name = tmdb_data.get('title', 'N/A')
             original_title = tmdb_data.get('original_title', 'N/A')
-            release_date = tmdb_data.get('release_date', '0000-00-00')  # 기본값 설정
+            release_date = tmdb_data.get('release_date', '0000-00-00')
             runtime = tmdb_data.get('runtime', 0)
             overview = tmdb_data.get('overview', 'N/A')
             director = ', '.join([crew['name'] for crew in tmdb_credits.get('crew', []) if crew['job'] == 'Director']) if tmdb_credits else 'N/A'
@@ -134,27 +115,24 @@ def insert_movie_if_not_exists(tmdb_data=None, tmdb_credits=None):
             INSERT INTO MOVIE (movie_name, genre_id, tmdb_id, original_title, release_date, runtime, overview, director, cast, production_company)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-            try:
-                cur.execute(sql_insert, (
-                    movie_name,
-                    genre_id,
-                    tmdb_id,
-                    original_title,
-                    release_date,
-                    runtime,
-                    overview,
-                    director,
-                    cast,
-                    production_company
-                ))
-                conn.commit()
-                print(f"Inserted movie into MOVIE table: {movie_name}")
-                return cur.lastrowid
-            except pymysql.MySQLError as e:
-                print(f"Error inserting movie '{movie_name}' into MOVIE table: {e}")
-                return None
+            cur.execute(sql_insert, (
+                movie_name,
+                genre_id,  # 장르 ID 저장
+                tmdb_id,
+                original_title,
+                release_date,
+                runtime,
+                overview,
+                director,
+                cast,
+                production_company
+            ))
+            conn.commit()
+            print(f"Inserted movie: {movie_name}")
+            return cur.lastrowid
     finally:
         conn.close()
+
 
 
 def save_review(user_id, movie_id, review_text, sentiment):
@@ -200,24 +178,31 @@ def verify_user(user_id, password):
 def create_user(user_id, password, username):
     """새로운 사용자를 생성하고 비밀번호를 해싱하여 저장"""
     conn = get_db_connection()
-    if not conn:
-        print("Database connection failed.")
-        return
     try:
         with conn.cursor() as cur:
+            # user_id가 이미 존재하는지 확인
+            check_sql = "SELECT user_id FROM USER WHERE user_id = %s"
+            cur.execute(check_sql, (user_id,))
+            existing_user = cur.fetchone()
+            if existing_user:
+                raise ValueError("이미 존재하는 사용자 아이디입니다.")
+
             hashed_pw = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             sql = """
-            INSERT INTO USER (user_id, password, user_name)
+            INSERT INTO USER (user_id, password, username)
             VALUES (%s, %s, %s)
             """
-            try:
-                cur.execute(sql, (user_id, hashed_pw, username))
-                conn.commit()
-                print(f"Created new user: {user_id}")
-            except pymysql.MySQLError as e:
-                print(f"Error creating user '{user_id}': {e}")
+            cur.execute(sql, (user_id, hashed_pw, username))
+            conn.commit()
+            print(f"Created new user: {user_id}")
+    except Exception as e:
+        print(f"Error creating user: {e}")
+        conn.rollback()
+        raise e  # 오류가 발생하면 다시 예외를 던짐
     finally:
         conn.close()
+
+
 
 
 def check_review_exists(user_id, movie_id):
@@ -236,44 +221,68 @@ def check_review_exists(user_id, movie_id):
         conn.close()
 
 
-def recommend_movies_based_on_reviews(user_id, limit=5):
-    """사용자의 리뷰 감정을 기반으로 영화 추천"""
+def recommend_movies_based_on_tfidf(selected_movie_id, limit=5):
+    """선택한 영화와 같은 장르에서 TF-IDF를 기준으로 유사한 영화를 추천"""
     conn = get_db_connection()
-    if not conn:
-        print("Database connection failed.")
-        return []
     try:
         with conn.cursor() as cur:
-            # 리뷰 기반으로 장르 선호도 계산 (긍정 리뷰가 많은 장르 순)
-            sql = """
-            SELECT genre_id 
-            FROM MOVIE
-            JOIN REVIEW ON MOVIE.movie_id = REVIEW.movie_id
-            WHERE REVIEW.user_id = %s AND REVIEW.sentiment = 'positive'
-            GROUP BY genre_id
-            ORDER BY COUNT(*) DESC
-            LIMIT %s
-            """
-            cur.execute(sql, (user_id, limit))
-            results = cur.fetchall()
-            genre_ids = [row['genre_id'] for row in results]
+            # 선택한 영화의 장르 ID 가져오기
+            cur.execute("SELECT genre_id FROM MOVIE WHERE movie_id = %s", (selected_movie_id,))
+            genre_result = cur.fetchone()
+            if not genre_result:
+                return []
+            genre_id = genre_result['genre_id']
 
-            if not genre_ids:
-                print("사용자의 긍정 리뷰에 기반한 장르가 없습니다.")
+            # 같은 장르의 영화 가져오기
+            cur.execute("""
+                SELECT movie_id, movie_name, overview, tmdb_id
+                FROM MOVIE
+                WHERE genre_id = %s AND movie_id != %s
+            """, (genre_id, selected_movie_id))
+            movies = cur.fetchall()
+
+            if not movies:
                 return []
 
-            # movie_list에서 동일한 장르의 영화 추천
+            # TF-IDF 계산
+            overviews = [movie['overview'] for movie in movies]
+            tfidf_vectorizer = TfidfVectorizer(stop_words='english')
+            tfidf_matrix = tfidf_vectorizer.fit_transform(overviews)
+
+            # 선택한 영화의 overview 가져오기
+            cur.execute("SELECT overview FROM MOVIE WHERE movie_id = %s", (selected_movie_id,))
+            selected_movie = cur.fetchone()
+            if not selected_movie or not selected_movie['overview']:
+                return []
+
+            selected_tfidf = tfidf_vectorizer.transform([selected_movie['overview']])
+            cosine_sim = cosine_similarity(selected_tfidf, tfidf_matrix).flatten()
+
+            # 유사도 기준 정렬
+            similarity_scores = list(enumerate(cosine_sim))
+            similarity_scores = sorted(similarity_scores, key=lambda x: x[1], reverse=True)
+
+            # 가장 유사한 영화 추천
             recommended_movies = []
-            for genre_id in genre_ids:
-                cur.execute("""
-                    SELECT movie_name 
-                    FROM movie_list 
-                    WHERE genre_id = %s
-                    ORDER BY RAND()
-                    LIMIT 3
-                """, (genre_id,))
-                fetched = cur.fetchall()
-                recommended_movies += [row['movie_name'] for row in fetched]
+            for idx, score in similarity_scores[:limit]:
+                recommended_movies.append(movies[idx]) 
             return recommended_movies
+    finally:
+        conn.close()
+
+def recommend_random_movies(limit=5):
+    """영화 목록에서 평점 높은 영화 중 랜덤으로 5개를 추천"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # 평점이 높은 영화 중 5개를 랜덤으로 추천
+            cur.execute("""
+                SELECT movie_id, movie_name, tmdb_id
+                FROM movie_list
+                ORDER BY RAND()
+                LIMIT %s
+            """, (limit,))
+            movies = cur.fetchall()
+            return movies
     finally:
         conn.close()

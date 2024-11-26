@@ -4,8 +4,10 @@ from checkdb import (
     create_user,
     verify_user,
     insert_movie_if_not_exists,
-    recommend_movies_based_on_reviews,
-    check_review_exists
+    recommend_movies_based_on_tfidf,
+    check_review_exists,
+    recommend_random_movies,
+    get_db_connection
 )
 import sys
 import os
@@ -14,12 +16,13 @@ from dotenv import load_dotenv
 from lstm_model import predict_sentiment
 
 # 환경 변수 로드
-load_dotenv()
+load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
 
 DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
 DB_NAME = os.getenv('DB_NAME')
+
 
 st.set_page_config(
     page_title="무비뭐바",
@@ -29,7 +32,7 @@ st.set_page_config(
 )
 
 sys.path.append(os.path.abspath("C:/Users/you0m/Desktop/movie/utils"))
-from utils.api_fetch import (
+from api_fetch import (
     search_tmdb_movie,
     get_tmdb_movie_details,
     get_tmdb_movie_credits
@@ -88,27 +91,39 @@ if 'review_saved' not in st.session_state:
 if 'username' not in st.session_state:
     st.session_state.username = None
 
-if not st.session_state.logged_in:
-    if st.session_state.show_signup:
+if not st.session_state.get('logged_in', False):
+    if st.session_state.get('show_signup', False):
         st.header('회원가입')
 
         new_user_id = st.text_input('사용자 아이디', key='new_user_id')
         new_password = st.text_input('비밀번호', type='password', key='new_password')
+        confirm_password = st.text_input('비밀번호 확인', type='password', key='confirm_password')
         username = st.text_input('이름', key='new_username')
 
         if st.button('회원가입 하기'):
-            if new_user_id and new_password and username:
-                try:
+            if new_user_id and new_password and confirm_password and username:
+                if new_password != confirm_password:
+                    st.error("비밀번호가 일치하지 않습니다.")
+                else:
+                    # 회원가입 처리
                     create_user(new_user_id, new_password, username)
                     st.success("회원가입이 완료되었습니다.")
-                    st.session_state.show_signup = False
-                except pymysql.MySQLError:
-                    st.error("회원가입 오류")
+                    st.session_state.show_signup = False  # 회원가입 화면 종료
+                    st.session_state.show_login_button = True  # 로그인하기 버튼 활성화
             else:
                 st.error("모든 필드를 입력해주세요.")
 
-        if st.button('이미 계정이 있나요? 로그인'):
-            st.session_state.show_signup = False
+        # 회원가입 완료 후에만 "로그인하기" 버튼 표시
+        if st.session_state.get('show_login_button', False):
+            if st.button('로그인하기'):
+                st.session_state.show_signup = False  # 회원가입 화면 종료
+                st.session_state.show_login_button = False  # 로그인 버튼 숨김
+                st.experimental_rerun()  # 로그인 화면으로 새로고침
+
+        # 회원가입 중에는 "이미 계정이 있나요? 로그인" 버튼 표시
+        elif st.button('이미 계정이 있나요? 로그인'):
+            st.session_state.show_signup = False  # 회원가입 화면 종료
+
     else:
         st.header('로그인')
 
@@ -129,7 +144,8 @@ if not st.session_state.logged_in:
                 st.error("모든 필드를 입력해주세요.")
 
         if st.button('회원가입'):
-            st.session_state.show_signup = True
+            st.session_state.show_signup = True  # 회원가입 화면 활성화
+
 
 else:
     st.header('영화 검색')
@@ -161,7 +177,11 @@ else:
                         poster_path = tmdb_movie_details.get('poster_path')
                         if poster_path:
                             poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-                            st.image(poster_url, width=150)
+                            st.markdown(f"""
+                                        <div style="text-align: center; margin-left: 100px;">
+                                            <img src="{poster_url}" width="230">
+                                        </div>
+                                        """, unsafe_allow_html=True)
 
                     # 영화가 이미 DB에 있는지 확인
                     movie_id = insert_movie_if_not_exists(tmdb_movie_details, tmdb_movie_credits)
@@ -195,27 +215,39 @@ else:
                     st.success("리뷰가 저장되었습니다.")
                     
                     if sentiment == "positive":
-                        # 같은 장르의 영화 5개 추천
-                        recommended_movies = recommend_movies_based_on_reviews(st.session_state.user_id, limit=5)
+                        # 선택된 영화의 제목을 가져오기
+                        conn = get_db_connection()
+                        try:
+                            with conn.cursor() as cur:
+                                # 선택된 영화의 제목을 가져옴
+                                cur.execute("SELECT movie_name FROM MOVIE WHERE movie_id = %s", (st.session_state.selected_movie_id,))
+                                selected_movie = cur.fetchone()
+                                if selected_movie:
+                                    movie_name = selected_movie['movie_name']
+                                    st.subheader(f'"{movie_name}"와 비슷한 영화 추천')
+                                    
+                                    # 같은 장르의 영화 5개 추천
+                                    recommended_movies = recommend_movies_based_on_tfidf(st.session_state.selected_movie_id, limit=5)
+                                    if recommended_movies:
+                                        for movie in recommended_movies:
+                                            tmdb_url = f"https://www.themoviedb.org/movie/{movie['tmdb_id']}"
+                                            st.markdown(f"[{movie['movie_name']}]({tmdb_url})", unsafe_allow_html=True)  # 검정색 글씨로 링크 제공
+                                    else:
+                                        st.write("추천할 영화가 없습니다.")
+                                else:
+                                    st.error("선택된 영화의 이름을 가져오는 데 실패했습니다.")
+                        finally:
+                            conn.close()
+
+                    else:
+                        st.subheader("이런 영화는 어떠신가요?")
+                        # 랜덤으로 평점 좋은 영화 5개 추천
+                        recommended_movies = recommend_random_movies(limit=5)
                         if recommended_movies:
-                            st.subheader('추천 영화')
-                            with pymysql.connect(
-                                host=DB_HOST,
-                                user=DB_USER,
-                                password=DB_PASSWORD,
-                                db=DB_NAME,
-                                charset='utf8mb4',
-                                cursorclass=pymysql.cursors.DictCursor
-                            ) as conn:
-                                for movie_id in recommended_movies:
-                                    with conn.cursor() as cur:
-                                        cur.execute("SELECT movie_name FROM movie_list WHERE movie_id = %s", (movie_id,))
-                                        result = cur.fetchone()
-                                        if result:
-                                            st.write(f"- {result['movie_name']}")
+                            for movie in recommended_movies:
+                                tmdb_url = f"https://www.themoviedb.org/movie/{movie['tmdb_id']}"
+                                st.markdown(f"[{movie['movie_name']}]({tmdb_url})", unsafe_allow_html=True)  # 검정색 글씨로 링크 제공
                         else:
                             st.write("추천할 영화가 없습니다.")
-                    else:
-                        st.warning("부정적인 리뷰이므로 추천하지 않습니다.")
                 else:
                     st.error("리뷰를 작성해주세요.")
