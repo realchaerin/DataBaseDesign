@@ -10,26 +10,18 @@ from checkdb import (
     get_db_connection,
     insert_movie_genres
 )
-import sys
 import os
-import pymysql
+import sys
 from dotenv import load_dotenv
 from lstm_model import predict_sentiment
 
 # 환경 변수 로드
 load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
 
-DB_HOST = os.getenv('DB_HOST')
-DB_USER = os.getenv('DB_USER')
-DB_PASSWORD = os.getenv('DB_PASSWORD')
-DB_NAME = os.getenv('DB_NAME')
-
-
 st.set_page_config(
-    page_title="무비뭐바",
+    page_title="무비뭐봐",
     page_icon="🎬",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
 sys.path.append(os.path.abspath("C:/Users/you0m/Desktop/movie/utils"))
@@ -40,63 +32,102 @@ from api_fetch import (
     get_tmdb_movie_details_with_genres
 )
 
-# CSS 적용
+# CSS 스타일링
 st.markdown("""
 <style>
-body {
-    margin: 0px !important;
-    padding: 0px !important;
+body { margin: 0; padding: 0; }
+.navbar {
+    display: flex; justify-content: flex-end; align-items: center;
+    padding: 10px 20px; background-color: #f8f9fa;
 }
-.title {
-    color: #B22222;
-    text-align: center;
+.navbar .mypage-btn {
+    font-size: 0.9rem; color: #555; background: none; border: none;
+    text-decoration: underline; cursor: pointer;
 }
-.stButton > button {
-    background-color: #B22222;
-    color: white;
-    border-radius: 5px;
-    padding: 10px 20px;
+.title-section {
+    text-align: center; margin-top: 10px; margin-bottom: 20px;
 }
-.stTextInput, .stTextArea {
-    background-color: #f4f4f4;
-    color: #333;
-    border-radius: 5px;
-    border: 1px solid #ccc;
+.title-section .main-title { font-size: 2rem; color: #B22222; font-weight: bold; }
+.title-section .subtitle { font-size: 1rem; color: #555; }
+.movie-search {
+    text-align: center; margin-bottom: 20px;
 }
-img {
-    margin-top: -70px;
+.movie-poster img { height: 150px; object-fit: cover; border-radius: 5px; }
+.movie-title {
+    font-size: 0.8rem; /* 제목 크기 */
+    text-align: left; /* 제목 왼쪽 정렬 */
+    margin-left: 10px; /* 제목을 살짝 왼쪽으로 이동 */
 }
-.movie-overview {
-    width: 100%;
-    text-align: justify;
-    font-size: 1rem;
-    margin-top: 20px;
+.movie-container {
+    text-align: center; /* 전체 가운데 정렬 */
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 class="title">무비뭐봐🎬</h1>', unsafe_allow_html=True)
+st.markdown("""
+<div style="text-align: center; color: #8B0000; font-weight: bold; font-size: 2rem;">
+    무비뭐봐🎬
+</div>
+""", unsafe_allow_html=True)
 st.markdown('<p style="text-align: center;">리뷰 기반 영화 추천 시스템</p>', unsafe_allow_html=True)
 
+# 세션 초기화
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-
 if 'show_signup' not in st.session_state:
     st.session_state.show_signup = False
-
 if 'selected_movie_id' not in st.session_state:
     st.session_state.selected_movie_id = None
-
 if 'review_saved' not in st.session_state:
     st.session_state.review_saved = False
-
 if 'username' not in st.session_state:
     st.session_state.username = None
 
+# 마이페이지 구현 (포스터 포함)
+def display_user_reviews():
+    st.header("마이페이지")
+    st.subheader(f"{st.session_state.username}님의 리뷰 목록")
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT m.movie_name, r.review_text, r.sentiment, m.tmdb_id
+                FROM REVIEW r
+                JOIN MOVIE m ON r.movie_id = m.movie_id
+                WHERE r.user_id = %s
+            """, (st.session_state.user_id,))
+            reviews = cur.fetchall()
+            if reviews:
+                for review in reviews:
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.markdown(f"**영화명:** {review['movie_name']}")
+                        st.markdown(f"**리뷰:** {review['review_text']}")
+                        st.markdown(f"**감정 분석 결과:** {review['sentiment']}")
+                        st.markdown("---")
+                    with col2:
+                        # 영화 포스터 가져오기
+                        movie_details = get_tmdb_movie_details(review['tmdb_id'])
+                        if movie_details and movie_details.get('poster_path'):
+                            poster_url = f"https://image.tmdb.org/t/p/w500{movie_details['poster_path']}"
+                            st.image(poster_url, width=100)  # 포스터 표시
+                        else:
+                            st.write("포스터 없음")  # 포스터가 없을 경우 대체 텍스트
+            else:
+                st.info("작성한 리뷰가 없습니다.")
+    finally:
+        conn.close()
+
+        
+    # "영화 검색으로 돌아가기" 버튼 추가
+    if st.button("영화 검색하기"):
+        st.session_state.current_page = "search"  # 페이지 상태를 검색으로 변경
+
+
+# 로그인/회원가입 처리
 if not st.session_state.get('logged_in', False):
     if st.session_state.get('show_signup', False):
         st.header('회원가입')
-
         new_user_id = st.text_input('사용자 아이디', key='new_user_id')
         new_password = st.text_input('비밀번호', type='password', key='new_password')
         confirm_password = st.text_input('비밀번호 확인', type='password', key='confirm_password')
@@ -107,31 +138,17 @@ if not st.session_state.get('logged_in', False):
                 if new_password != confirm_password:
                     st.error("비밀번호가 일치하지 않습니다.")
                 else:
-                    # 회원가입 처리
                     create_user(new_user_id, new_password, username)
                     st.success("회원가입이 완료되었습니다.")
-                    st.session_state.show_signup = False  # 회원가입 화면 종료
-                    st.session_state.show_login_button = True  # 로그인하기 버튼 활성화
+                    st.session_state.show_signup = False
             else:
                 st.error("모든 필드를 입력해주세요.")
-
-        # 회원가입 완료 후에만 "로그인하기" 버튼 표시
-        if st.session_state.get('show_login_button', False):
-            if st.button('로그인하기'):
-                st.session_state.show_signup = False  # 회원가입 화면 종료
-                st.session_state.show_login_button = False  # 로그인 버튼 숨김
-                st.experimental_rerun()  # 로그인 화면으로 새로고침
-
-        # 회원가입 중에는 "이미 계정이 있나요? 로그인" 버튼 표시
-        elif st.button('이미 계정이 있나요? 로그인'):
-            st.session_state.show_signup = False  # 회원가입 화면 종료
-
+        if st.button('이미 계정이 있나요? 로그인'):
+            st.session_state.show_signup = False
     else:
         st.header('로그인')
-
         user_id = st.text_input('사용자 아이디')
         password = st.text_input('비밀번호', type='password')
-
         if st.button('로그인'):
             if user_id and password:
                 username = verify_user(user_id, password)
@@ -144,117 +161,146 @@ if not st.session_state.get('logged_in', False):
                     st.error("사용자 이름 또는 비밀번호가 올바르지 않습니다.")
             else:
                 st.error("모든 필드를 입력해주세요.")
-
         if st.button('회원가입'):
-            st.session_state.show_signup = True  # 회원가입 화면 활성화
-
-
+            st.session_state.show_signup = True
 else:
-    st.header('영화 검색')
+    # 세션 상태를 이용한 페이지 전환 처리
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = "search"  # 기본 페이지: 영화 검색
 
-    search_query = st.text_input('영화 이름을 입력하세요')
+    # 사이드바로 마이페이지 버튼 추가
+    with st.sidebar:
+        if st.button("마이페이지"):
+            st.session_state.current_page = "mypage"  # 세션 상태로 페이지 전환
 
-    if st.button('검색'):
-        if search_query:
-            search_results = search_tmdb_movie(search_query)
-            if search_results and 'results' in search_results and len(search_results['results']) > 0:
-                movie_data = search_results['results'][0]
-                tmdb_id = movie_data['id']
-                
-                # TMDB 영화 세부 정보와 장르 가져오기
-                tmdb_movie_details, genres = get_tmdb_movie_details_with_genres(tmdb_id)
-                tmdb_movie_credits = get_tmdb_movie_credits(tmdb_id)
+    # 페이지 상태에 따라 화면 구성
+    if st.session_state.current_page == "mypage":
+        display_user_reviews()  # 마이페이지 표시
+    else:
+        # 영화 검색창
+        search_query = st.text_input("영화 검색", key="search_query", placeholder="영화 이름을 입력하세요")
+        if st.button("검색"):
+            if search_query:
+                search_results = search_tmdb_movie(search_query)
+                if search_results and 'results' in search_results:
+                    movie_data = search_results['results'][0]
+                    tmdb_id = movie_data['id']
+                    tmdb_movie_details, genres = get_tmdb_movie_details_with_genres(tmdb_id)
+                    tmdb_movie_credits = get_tmdb_movie_credits(tmdb_id)
+                    if tmdb_movie_details:
+                        col1, col2 = st.columns([2, 1])
+                        with col1:
+                            st.write(f"**영화명:** {tmdb_movie_details.get('title', 'N/A')}")
+                            st.write(f"**영화명(영문):** {tmdb_movie_details.get('original_title', 'N/A')}")
+                            st.write(f"**개봉일:** {tmdb_movie_details.get('release_date', 'N/A')}")
+                            st.write(f"**상영시간:** {tmdb_movie_details.get('runtime', 'N/A')} 분")
+                            st.markdown(f"<div class='movie-overview'>{tmdb_movie_details.get('overview', 'N/A')}</div>", unsafe_allow_html=True)
 
-                if tmdb_movie_details:
-                    st.subheader("TMDB 영화 상세 정보")
+                        with col2:
+                            poster_path = tmdb_movie_details.get('poster_path')
+                            if poster_path:
+                                poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+                                st.markdown(f"""
+                                            <div style="text-align: center; margin-left: 100px;">
+                                                <img src="{poster_url}" width="230">
+                                            </div>
+                                            """, unsafe_allow_html=True)
 
-                    col1, col2 = st.columns([2, 1])
-                    with col1:
-                        st.write(f"**영화명:** {tmdb_movie_details.get('title', 'N/A')}")
-                        st.write(f"**영화명(영문):** {tmdb_movie_details.get('original_title', 'N/A')}")
-                        st.write(f"**개봉일:** {tmdb_movie_details.get('release_date', 'N/A')}")
-                        st.write(f"**상영시간:** {tmdb_movie_details.get('runtime', 'N/A')} 분")
-                        st.markdown(f"<div class='movie-overview'>{tmdb_movie_details.get('overview', 'N/A')}</div>", unsafe_allow_html=True)
+                        # 영화 및 장르 저장
+                        movie_id = insert_movie_if_not_exists(tmdb_movie_details, tmdb_movie_credits)
+                        if genres:
+                            insert_movie_genres(movie_id, genres)
 
-                    with col2:
-                        poster_path = tmdb_movie_details.get('poster_path')
-                        if poster_path:
-                            poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
-                            st.markdown(f"""
-                                        <div style="text-align: center; margin-left: 100px;">
-                                            <img src="{poster_url}" width="230">
-                                        </div>
-                                        """, unsafe_allow_html=True)
-
-                    # 영화가 이미 DB에 있는지 확인 및 삽입
-                    movie_id = insert_movie_if_not_exists(tmdb_movie_details, tmdb_movie_credits)
-                    if genres:
-                        insert_movie_genres(movie_id, genres)  # 장르 삽입
-
-                    st.session_state.selected_movie_id = movie_id
-                    st.success("영화 정보가 저장되었습니다. 이제 리뷰를 작성해주세요.")
+                        st.session_state.selected_movie_id = movie_id
+                        st.success("영화 정보가 저장되었습니다. 이제 리뷰를 작성해주세요.")
+                    else:
+                        st.error("영화 상세 정보를 가져오는 데 실패했습니다.")
                 else:
-                    st.error("영화 상세 정보를 가져오는 데 실패했습니다.")
+                    st.warning("검색 결과가 없습니다.")
             else:
-                st.warning("검색 결과가 없습니다.")
-        else:
-            st.error("영화 이름을 입력해주세요.")
+                st.error("검색어를 입력하세요.")
 
-    # 영화가 선택된 경우에만 리뷰 작성 섹션 표시
-    if st.session_state.selected_movie_id:
-        # 해당 영화에 대한 리뷰가 이미 존재하는지 확인
-        review_exists = check_review_exists(st.session_state.user_id, st.session_state.selected_movie_id)
-        if review_exists:
-            st.warning("해당 영화에 대한 리뷰가 이미 존재합니다.")
-        else:
-            st.subheader("리뷰 작성")
-            review_text = st.text_area('영화에 대한 리뷰를 작성하세요', key="review_text")
-
-            if st.button('리뷰 제출'):
-                if review_text:
-                    sentiment = predict_sentiment(review_text)
-                    st.session_state.review_saved = True
-                    
-                    # 리뷰를 데이터베이스에 저장
-                    save_review(st.session_state.user_id, st.session_state.selected_movie_id, review_text, sentiment)
-                    
-                    st.success("리뷰가 저장되었습니다.")
-                    
-                    if sentiment == "positive":
-                        # 선택된 영화의 제목을 가져오기
-                        conn = get_db_connection()
-                        try:
-                            with conn.cursor() as cur:
-                                # 선택된 영화의 제목을 가져옴
-                                cur.execute("SELECT movie_name FROM MOVIE WHERE movie_id = %s", (st.session_state.selected_movie_id,))
-                                selected_movie = cur.fetchone()
-                                if selected_movie:
-                                    movie_name = selected_movie['movie_name']
-                                    st.subheader(f'"{movie_name}"와 비슷한 영화 추천')
-
-                                    # 장르와 overview 기반으로 유사한 영화 추천
-                                    recommended_movies = recommend_movies_based_on_genre_and_overview(
-                                        st.session_state.selected_movie_id, limit=5)
-                                    if recommended_movies:
-                                        for movie in recommended_movies:
-                                            tmdb_url = f"https://www.themoviedb.org/movie/{movie['tmdb_id']}"
-                                            st.markdown(f"[{movie['movie_name']}]({tmdb_url})", unsafe_allow_html=True)
+        # 영화가 선택된 경우에만 리뷰 작성 섹션 표시
+        if st.session_state.selected_movie_id:
+            review_exists = check_review_exists(st.session_state.user_id, st.session_state.selected_movie_id)
+            if review_exists:
+                st.warning("해당 영화에 대한 리뷰가 이미 존재합니다.")
+            else:
+                st.subheader("리뷰 작성")
+                review_text = st.text_area("리뷰를 입력하세요", key="review_text")
+                if st.button("리뷰 제출"):
+                    if review_text:
+                        sentiment = predict_sentiment(review_text)
+                        save_review(st.session_state.user_id, st.session_state.selected_movie_id, review_text, sentiment)
+                        st.success("리뷰가 저장되었습니다.")
+                        if sentiment == "positive":
+                            conn = get_db_connection()
+                            try:
+                                with conn.cursor() as cur:
+                                    cur.execute("SELECT movie_name FROM MOVIE WHERE movie_id = %s", (st.session_state.selected_movie_id,))
+                                    selected_movie = cur.fetchone()
+                                    if selected_movie:
+                                        movie_name = selected_movie['movie_name']
+                                        st.subheader(f'"{movie_name}"와 비슷한 영화 추천')
+            
+                                        # 유사한 영화 추천
+                                        recommended_movies = recommend_movies_based_on_genre_and_overview(st.session_state.selected_movie_id, limit=5)
+                                        if recommended_movies:
+                                            cols = st.columns(5)  # 5개의 열 생성
+                                            for i, movie in enumerate(recommended_movies):
+                                                with cols[i % 5]:  # 5개씩 가로로 정렬
+                                                    poster_url = f"https://image.tmdb.org/t/p/w500/{movie['tmdb_id']}" if movie.get('tmdb_id') else None
+                                                    if poster_url:
+                                                        st.image(poster_url, use_container_width=True)  # 포스터 이미지
+                                                    st.markdown(f"[**{movie['movie_name']}**](https://www.themoviedb.org/movie/{movie['tmdb_id']})", unsafe_allow_html=True)
+                                        else:
+                                            st.write("추천할 영화가 없습니다.")
                                     else:
-                                        st.write("추천할 영화가 없습니다.")
-                                else:
-                                    st.error("선택된 영화의 이름을 가져오는 데 실패했습니다.")
-                        finally:
-                            conn.close()
+                                        st.error("선택된 영화의 이름을 가져오는 데 실패했습니다.")
+                            finally:
+                                conn.close()
+
+                        else:
+                            # 랜덤 영화 추천 (부정적인 리뷰 시)
+                            st.subheader("이런 영화는 어떠신가요?")
+                            recommended_movies = recommend_random_movies(limit=5)
+                            if recommended_movies:
+                                cols = st.columns(5)  # 5개의 열 생성
+                                for i, movie in enumerate(recommended_movies):
+                                    with cols[i % 5]:  # 5개씩 가로로 정렬
+                                        poster_url = f"https://image.tmdb.org/t/p/w500/{movie['tmdb_id']}" if movie.get('tmdb_id') else None
+                                        if poster_url:
+                                            st.image(poster_url, use_container_width=True)  # 포스터 이미지
+                                        st.markdown(f"[**{movie['movie_name']}**](https://www.themoviedb.org/movie/{movie['tmdb_id']})", unsafe_allow_html=True)
+                            else:
+                                st.write("추천할 영화가 없습니다.")
 
                     else:
-                        st.subheader("이런 영화는 어떠신가요?")
-                        # 랜덤으로 평점 좋은 영화 5개 추천
-                        recommended_movies = recommend_random_movies(limit=5)
-                        if recommended_movies:
-                            for movie in recommended_movies:
-                                tmdb_url = f"https://www.themoviedb.org/movie/{movie['tmdb_id']}"
-                                st.markdown(f"[{movie['movie_name']}]({tmdb_url})", unsafe_allow_html=True)
-                        else:
-                            st.write("추천할 영화가 없습니다.")
-                else:
-                    st.error("리뷰를 작성해주세요.")
+                        st.error("리뷰를 작성해주세요.")
+        else:
+            st.subheader("오늘의 추천 영화")
+            conn = get_db_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT movie_name, tmdb_id
+                        FROM movie_list
+                        ORDER BY RAND()
+                        LIMIT 5
+                    """)
+                    movies = cur.fetchall()
+            finally:
+                conn.close()
+
+            cols = st.columns(5)
+            for i, movie in enumerate(movies):
+                with cols[i]:
+                    st.markdown('<div class="movie-container">', unsafe_allow_html=True)
+                    movie_details = get_tmdb_movie_details(movie['tmdb_id'])
+                    if movie_details and movie_details.get('poster_path'):
+                        st.image(f"https://image.tmdb.org/t/p/w500{movie_details['poster_path']}", width=150)  # 포스터 크기 통일
+                    else:
+                        st.write("포스터 없음")
+                    st.markdown(f"<p class='movie-title'>{movie['movie_name']}</p>", unsafe_allow_html=True)  # 제목 왼쪽 정렬
+                    st.markdown(f"[상세보기](https://www.themoviedb.org/movie/{movie['tmdb_id']})</p>", unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
