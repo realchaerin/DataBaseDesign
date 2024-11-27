@@ -4,10 +4,11 @@ from checkdb import (
     create_user,
     verify_user,
     insert_movie_if_not_exists,
-    recommend_movies_based_on_tfidf,
+    recommend_movies_based_on_genre_and_overview,
     check_review_exists,
     recommend_random_movies,
-    get_db_connection
+    get_db_connection,
+    insert_movie_genres
 )
 import sys
 import os
@@ -35,7 +36,8 @@ sys.path.append(os.path.abspath("C:/Users/you0m/Desktop/movie/utils"))
 from api_fetch import (
     search_tmdb_movie,
     get_tmdb_movie_details,
-    get_tmdb_movie_credits
+    get_tmdb_movie_credits,
+    get_tmdb_movie_details_with_genres
 )
 
 # CSS 적용
@@ -159,7 +161,8 @@ else:
                 movie_data = search_results['results'][0]
                 tmdb_id = movie_data['id']
                 
-                tmdb_movie_details = get_tmdb_movie_details(tmdb_id)
+                # TMDB 영화 세부 정보와 장르 가져오기
+                tmdb_movie_details, genres = get_tmdb_movie_details_with_genres(tmdb_id)
                 tmdb_movie_credits = get_tmdb_movie_credits(tmdb_id)
 
                 if tmdb_movie_details:
@@ -183,8 +186,11 @@ else:
                                         </div>
                                         """, unsafe_allow_html=True)
 
-                    # 영화가 이미 DB에 있는지 확인
+                    # 영화가 이미 DB에 있는지 확인 및 삽입
                     movie_id = insert_movie_if_not_exists(tmdb_movie_details, tmdb_movie_credits)
+                    if genres:
+                        insert_movie_genres(movie_id, genres)  # 장르 삽입
+
                     st.session_state.selected_movie_id = movie_id
                     st.success("영화 정보가 저장되었습니다. 이제 리뷰를 작성해주세요.")
                 else:
@@ -225,13 +231,14 @@ else:
                                 if selected_movie:
                                     movie_name = selected_movie['movie_name']
                                     st.subheader(f'"{movie_name}"와 비슷한 영화 추천')
-                                    
-                                    # 같은 장르의 영화 5개 추천
-                                    recommended_movies = recommend_movies_based_on_tfidf(st.session_state.selected_movie_id, limit=5)
+
+                                    # 장르와 overview 기반으로 유사한 영화 추천
+                                    recommended_movies = recommend_movies_based_on_genre_and_overview(
+                                        st.session_state.selected_movie_id, limit=5)
                                     if recommended_movies:
                                         for movie in recommended_movies:
                                             tmdb_url = f"https://www.themoviedb.org/movie/{movie['tmdb_id']}"
-                                            st.markdown(f"[{movie['movie_name']}]({tmdb_url})", unsafe_allow_html=True)  # 검정색 글씨로 링크 제공
+                                            st.markdown(f"[{movie['movie_name']}]({tmdb_url})", unsafe_allow_html=True)
                                     else:
                                         st.write("추천할 영화가 없습니다.")
                                 else:
@@ -246,7 +253,7 @@ else:
                         if recommended_movies:
                             for movie in recommended_movies:
                                 tmdb_url = f"https://www.themoviedb.org/movie/{movie['tmdb_id']}"
-                                st.markdown(f"[{movie['movie_name']}]({tmdb_url})", unsafe_allow_html=True)  # 검정색 글씨로 링크 제공
+                                st.markdown(f"[{movie['movie_name']}]({tmdb_url})", unsafe_allow_html=True)
                         else:
                             st.write("추천할 영화가 없습니다.")
                 else:

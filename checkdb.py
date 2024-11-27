@@ -78,7 +78,9 @@ def insert_movie_list(movie_data):
 
 
 def insert_movie_if_not_exists(tmdb_data=None, tmdb_credits=None):
-    """영화와 장르 데이터를 MOVIE 테이블에 저장"""
+    """
+    영화와 장르 데이터를 MOVIE 및 movie_genre 테이블에 저장
+    """
     conn = get_db_connection()
     if not conn:
         print("Database connection failed.")
@@ -95,43 +97,35 @@ def insert_movie_if_not_exists(tmdb_data=None, tmdb_credits=None):
             cur.execute(sql_check, (tmdb_id,))
             result = cur.fetchone()
             if result:
-                return result['movie_id']
-
-            # TMDB 데이터에서 장르 ID 가져오기
-            genres = tmdb_data.get('genres', [])
-            genre_id = genres[0]['id'] if genres else 'UNKNOWN'
+                movie_id = result['movie_id']
+                genres = tmdb_data.get('genres', [])
+                insert_movie_genres(movie_id, genres)  # 장르 업데이트
+                return movie_id
 
             # 영화 데이터 삽입
-            movie_name = tmdb_data.get('title', 'N/A')
-            original_title = tmdb_data.get('original_title', 'N/A')
-            release_date = tmdb_data.get('release_date', '0000-00-00')
-            runtime = tmdb_data.get('runtime', 0)
-            overview = tmdb_data.get('overview', 'N/A')
-            director = ', '.join([crew['name'] for crew in tmdb_credits.get('crew', []) if crew['job'] == 'Director']) if tmdb_credits else 'N/A'
-            cast = ', '.join([cast['name'] for cast in tmdb_credits.get('cast', [])[:5]]) if tmdb_credits else 'N/A'
-            production_company = ', '.join([company['name'] for company in tmdb_data.get('production_companies', [])]) if tmdb_data else 'N/A'
-
             sql_insert = """
-            INSERT INTO MOVIE (movie_name, genre_id, tmdb_id, original_title, release_date, runtime, overview, director, cast, production_company)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO MOVIE (movie_name, tmdb_id, original_title, release_date, runtime, overview, director, cast, production_company)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             cur.execute(sql_insert, (
-                movie_name,
-                genre_id,  # 장르 ID 저장
+                tmdb_data.get('title', 'N/A'),
                 tmdb_id,
-                original_title,
-                release_date,
-                runtime,
-                overview,
-                director,
-                cast,
-                production_company
+                tmdb_data.get('original_title', 'N/A'),
+                tmdb_data.get('release_date', '0000-00-00'),
+                tmdb_data.get('runtime', 0),
+                tmdb_data.get('overview', 'N/A'),
+                ', '.join([crew['name'] for crew in tmdb_credits.get('crew', []) if crew['job'] == 'Director']),
+                ', '.join([cast['name'] for cast in tmdb_credits.get('cast', [])[:5]]),
+                ', '.join([company['name'] for company in tmdb_data.get('production_companies', [])])
             ))
+            movie_id = cur.lastrowid
+            genres = tmdb_data.get('genres', [])
+            insert_movie_genres(movie_id, genres)  # 장르 삽입
             conn.commit()
-            print(f"Inserted movie: {movie_name}")
-            return cur.lastrowid
+            return movie_id
     finally:
         conn.close()
+
 
 
 
@@ -221,26 +215,40 @@ def check_review_exists(user_id, movie_id):
         conn.close()
 
 
-def recommend_movies_based_on_tfidf(selected_movie_id, limit=5):
-    """선택한 영화와 같은 장르에서 TF-IDF를 기준으로 유사한 영화를 추천"""
+def recommend_movies_based_on_genre_and_overview(selected_movie_id, limit=5):
+    """
+    선택한 영화와 같은 장르와 유사한 overview를 가진 영화를 추천
+    """
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             # 선택한 영화의 장르 ID 가져오기
-            cur.execute("SELECT genre_id FROM MOVIE WHERE movie_id = %s", (selected_movie_id,))
-            genre_result = cur.fetchone()
-            if not genre_result:
-                return []
-            genre_id = genre_result['genre_id']
-
-            # 같은 장르의 영화 가져오기
             cur.execute("""
-                SELECT movie_id, movie_name, overview, tmdb_id
-                FROM MOVIE
-                WHERE genre_id = %s AND movie_id != %s
-            """, (genre_id, selected_movie_id))
-            movies = cur.fetchall()
+                SELECT genre_id
+                FROM movie_genre
+                WHERE movie_id = %s
+            """, (selected_movie_id,))
+            genres = cur.fetchall()
+            if not genres:
+                return []
 
+            # 선택한 영화의 overview 가져오기
+            cur.execute("SELECT overview FROM MOVIE WHERE movie_id = %s", (selected_movie_id,))
+            selected_movie = cur.fetchone()
+            if not selected_movie or not selected_movie['overview']:
+                return []
+
+            genre_ids = [genre['genre_id'] for genre in genres]
+            genre_placeholders = ', '.join(['%s'] * len(genre_ids))
+
+            # 장르에 해당하는 영화 목록 가져오기
+            cur.execute(f"""
+                SELECT DISTINCT m.movie_id, m.movie_name, m.overview, m.tmdb_id
+                FROM MOVIE m
+                JOIN movie_genre mg ON m.movie_id = mg.movie_id
+                WHERE mg.genre_id IN ({genre_placeholders}) AND m.movie_id != %s
+            """, (*genre_ids, selected_movie_id))
+            movies = cur.fetchall()
             if not movies:
                 return []
 
@@ -249,12 +257,7 @@ def recommend_movies_based_on_tfidf(selected_movie_id, limit=5):
             tfidf_vectorizer = TfidfVectorizer(stop_words='english')
             tfidf_matrix = tfidf_vectorizer.fit_transform(overviews)
 
-            # 선택한 영화의 overview 가져오기
-            cur.execute("SELECT overview FROM MOVIE WHERE movie_id = %s", (selected_movie_id,))
-            selected_movie = cur.fetchone()
-            if not selected_movie or not selected_movie['overview']:
-                return []
-
+            # 선택한 영화의 TF-IDF 계산
             selected_tfidf = tfidf_vectorizer.transform([selected_movie['overview']])
             cosine_sim = cosine_similarity(selected_tfidf, tfidf_matrix).flatten()
 
@@ -265,7 +268,7 @@ def recommend_movies_based_on_tfidf(selected_movie_id, limit=5):
             # 가장 유사한 영화 추천
             recommended_movies = []
             for idx, score in similarity_scores[:limit]:
-                recommended_movies.append(movies[idx]) 
+                recommended_movies.append(movies[idx])
             return recommended_movies
     finally:
         conn.close()
@@ -284,5 +287,30 @@ def recommend_random_movies(limit=5):
             """, (limit,))
             movies = cur.fetchall()
             return movies
+    finally:
+        conn.close()
+        
+        
+def insert_movie_genres(movie_id, genres):
+    """영화와 관련된 장르를 movie_genre 테이블에 삽입"""
+    conn = get_db_connection()
+    if not conn:
+        print("Database connection failed.")
+        return
+    try:
+        with conn.cursor() as cur:
+            # 여러 개의 장르를 일괄 삽입
+            sql = """
+            INSERT INTO movie_genre (movie_id, genre_id)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE movie_id = movie_id
+            """
+            values = [(movie_id, genre['id']) for genre in genres]
+            cur.executemany(sql, values)  # 일괄 처리
+            conn.commit()  # 명시적으로 커밋
+            print(f"Inserted genres for movie_id {movie_id}: {[genre['id'] for genre in genres]}")
+    except pymysql.MySQLError as e:
+        print(f"Error inserting genres for movie_id {movie_id}: {e}")
+        conn.rollback()  # 오류 발생 시 롤백
     finally:
         conn.close()
