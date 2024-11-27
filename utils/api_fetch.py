@@ -74,3 +74,13 @@ def get_tmdb_movie_credits(tmdb_id):
     except requests.exceptions.RequestException as e:
         print(f"TMDB API 요청 중 오류 발생: {e}")
         return None
+    
+def get_tmdb_movie_details_with_genres(tmdb_id):
+    """
+    TMDB API에서 영화 세부 정보와 장르 정보를 가져옵니다.
+    """
+    movie_details = get_tmdb_movie_details(tmdb_id)
+    if movie_details:
+        genres = movie_details.get('genres', [])
+        return movie_details, genres
+    return None, None
