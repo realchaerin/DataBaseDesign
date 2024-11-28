@@ -17,9 +17,9 @@ except ModuleNotFoundError as e:
 
 # 환경 변수 로드
 ## 지현
-# load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
+load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
 ## 채린
-load_dotenv()
+# load_dotenv()
 
 TMDB_API_KEY = os.getenv('TMDB_API_KEY')
 TMDB_BASE_URL = 'https://api.themoviedb.org/3'
