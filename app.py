@@ -16,7 +16,10 @@ from dotenv import load_dotenv
 from lstm_model import predict_sentiment
 
 # 환경 변수 로드
-load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
+## 지현
+# load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
+## 채린
+load_dotenv()
 
 st.set_page_config(
     page_title="무비뭐봐",
@@ -24,8 +27,13 @@ st.set_page_config(
     layout="wide",
 )
 
-sys.path.append(os.path.abspath("C:/Users/you0m/Desktop/movie/utils"))
-from api_fetch import (
+## 지현
+# sys.path.append(os.path.abspath("C:/Users/you0m/Desktop/movie/utils"))
+## 채린
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(current_dir)
+
+from utils.api_fetch import (
     search_tmdb_movie,
     get_tmdb_movie_details,
     get_tmdb_movie_credits,
@@ -249,9 +257,12 @@ else:
                                             cols = st.columns(5)  # 5개의 열 생성
                                             for i, movie in enumerate(recommended_movies):
                                                 with cols[i % 5]:  # 5개씩 가로로 정렬
-                                                    poster_url = f"https://image.tmdb.org/t/p/w500/{movie['tmdb_id']}" if movie.get('tmdb_id') else None
-                                                    if poster_url:
+                                                    movie_details = get_tmdb_movie_details(movie['tmdb_id'])
+                                                    if movie_details and movie_details.get('poster_path'):
+                                                        poster_url = f"https://image.tmdb.org/t/p/w500{movie_details['poster_path']}"
                                                         st.image(poster_url, use_container_width=True)  # 포스터 이미지
+                                                    else:
+                                                        st.write("포스터 없음")
                                                     st.markdown(f"[**{movie['movie_name']}**](https://www.themoviedb.org/movie/{movie['tmdb_id']})", unsafe_allow_html=True)
                                         else:
                                             st.write("추천할 영화가 없습니다.")
@@ -268,11 +279,15 @@ else:
                                 cols = st.columns(5)  # 5개의 열 생성
                                 for i, movie in enumerate(recommended_movies):
                                     with cols[i % 5]:  # 5개씩 가로로 정렬
-                                        poster_url = f"https://image.tmdb.org/t/p/w500/{movie['tmdb_id']}" if movie.get('tmdb_id') else None
-                                        if poster_url:
+                                        # 영화 상세 정보 가져오기
+                                        movie_details = get_tmdb_movie_details(movie['tmdb_id'])
+                                        if movie_details and movie_details.get('poster_path'):
+                                            poster_url = f"https://image.tmdb.org/t/p/w500{movie_details['poster_path']}"
                                             st.image(poster_url, use_container_width=True)  # 포스터 이미지
+                                        else:
+                                            st.write("포스터 없음")
                                         st.markdown(f"[**{movie['movie_name']}**](https://www.themoviedb.org/movie/{movie['tmdb_id']})", unsafe_allow_html=True)
-                            else:
+                            else:       
                                 st.write("추천할 영화가 없습니다.")
 
                     else:
