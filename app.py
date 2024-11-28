@@ -16,9 +16,9 @@ from lstm_model import predict_sentiment
 
 # 환경 변수 로드
 ## 지현
-load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
+# load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
 ## 채린
-# load_dotenv()
+load_dotenv()
 
 st.set_page_config(
     page_title="무비뭐봐",
@@ -27,12 +27,12 @@ st.set_page_config(
 )
 
 ## 지현
-sys.path.append(os.path.abspath("C:/Users/you0m/Desktop/movie/utils"))
+# sys.path.append(os.path.abspath("C:/Users/you0m/Desktop/movie/utils"))
 ## 채린
-# current_dir = os.path.dirname(os.path.abspath(__file__))
-# sys.path.append(current_dir)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(current_dir)
 
-from api_fetch import (
+from utils.api_fetch import (
     search_tmdb_movie,
     get_tmdb_movie_details,
     get_tmdb_movie_credits,
@@ -352,5 +352,7 @@ else:
                     movie_details = get_tmdb_movie_details(movie['tmdb_id'])
                     if movie_details and movie_details.get('poster_path'):
                         st.image(f"https://image.tmdb.org/t/p/w500{movie_details['poster_path']}", width=150)
-                    st.markdown(f"<p class='movie-title'>{movie['movie_name']}</p>", unsafe_allow_html=True)
-                    st.markdown(f"[상세보기](https://www.themoviedb.org/movie/{movie['tmdb_id']})</p>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"[**{movie['movie_name']}**](https://www.themoviedb.org/movie/{movie['tmdb_id']})",
+                        unsafe_allow_html=True,
+                    )
