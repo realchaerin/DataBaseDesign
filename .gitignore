@@ -17,3 +17,4 @@ __pycache__/
 # 기타 무시할 파일
 *.db
 *.log
+.env
