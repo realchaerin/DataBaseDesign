@@ -8,9 +8,9 @@ import random
 
 # 환경 변수 로드
 ## 지현
-# load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
+load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
 ## 채린
-load_dotenv()
+# load_dotenv()
 
 DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER')
@@ -133,25 +133,22 @@ def insert_movie_if_not_exists(tmdb_data=None, tmdb_credits=None):
 
 
 def save_review(user_id, movie_id, review_text, sentiment):
-    """사용자의 리뷰를 데이터베이스에 저장"""
     conn = get_db_connection()
-    if not conn:
-        print("Database connection failed.")
-        return
     try:
         with conn.cursor() as cur:
-            sql = """
-            INSERT INTO REVIEW (user_id, movie_id, review_text, sentiment)
-            VALUES (%s, %s, %s, %s)
-            """
-            try:
-                cur.execute(sql, (user_id, movie_id, review_text, sentiment))
-                conn.commit()
-                print(f"Saved review for user {user_id} on movie ID {movie_id}")
-            except pymysql.MySQLError as e:
-                print(f"Error saving review: {e}")
+            # SQL 쿼리 확인
+            print(f"Executing: INSERT INTO REVIEW (user_id, movie_id, review_text, sentiment) VALUES ({user_id}, {movie_id}, {review_text}, {sentiment})")
+            cur.execute("""
+                INSERT INTO REVIEW (user_id, movie_id, review_text, sentiment)
+                VALUES (%s, %s, %s, %s)
+            """, (user_id, movie_id, review_text, sentiment))
+        conn.commit()  # 꼭 필요
+    except Exception as e:
+        print(f"Error saving review: {e}")  # 디버깅 로그
     finally:
         conn.close()
+
+
 
 
 def verify_user(user_id, password):

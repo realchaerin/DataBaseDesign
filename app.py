@@ -6,7 +6,6 @@ from checkdb import (
     insert_movie_if_not_exists,
     recommend_movies_based_on_genre_and_overview,
     check_review_exists,
-    recommend_random_movies,
     get_db_connection,
     insert_movie_genres
 )
@@ -17,9 +16,9 @@ from lstm_model import predict_sentiment
 
 # 환경 변수 로드
 ## 지현
-# load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
+load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
 ## 채린
-load_dotenv()
+# load_dotenv()
 
 st.set_page_config(
     page_title="무비뭐봐",
@@ -28,12 +27,12 @@ st.set_page_config(
 )
 
 ## 지현
-# sys.path.append(os.path.abspath("C:/Users/you0m/Desktop/movie/utils"))
+sys.path.append(os.path.abspath("C:/Users/you0m/Desktop/movie/utils"))
 ## 채린
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(current_dir)
+# current_dir = os.path.dirname(os.path.abspath(__file__))
+# sys.path.append(current_dir)
 
-from utils.api_fetch import (
+from api_fetch import (
     search_tmdb_movie,
     get_tmdb_movie_details,
     get_tmdb_movie_credits,
@@ -175,7 +174,9 @@ else:
     # 세션 상태를 이용한 페이지 전환 처리
     if "current_page" not in st.session_state:
         st.session_state.current_page = "search"  # 기본 페이지: 영화 검색
-
+    if "show_recommendation" not in st.session_state:
+        st.session_state.show_recommendation = False  # 추천 영화 표시 여부
+        
     # 사이드바로 마이페이지 버튼 추가
     with st.sidebar:
         if st.button("마이페이지"):
@@ -196,6 +197,10 @@ else:
                     tmdb_movie_details, genres = get_tmdb_movie_details_with_genres(tmdb_id)
                     tmdb_movie_credits = get_tmdb_movie_credits(tmdb_id)
                     if tmdb_movie_details:
+                        st.session_state.show_recommendation = False  # 검색 결과를 표시할 경우 추천 영화 숨김
+                        st.session_state.selected_movie_id = insert_movie_if_not_exists(tmdb_movie_details, tmdb_movie_credits)
+                        if genres:
+                            insert_movie_genres(st.session_state.selected_movie_id, genres)
                         col1, col2 = st.columns([2, 1])
                         with col1:
                             st.write(f"**영화명:** {tmdb_movie_details.get('title', 'N/A')}")
@@ -213,6 +218,8 @@ else:
                                                 <img src="{poster_url}" width="230">
                                             </div>
                                             """, unsafe_allow_html=True)
+
+                        st.session_state.show_recommendation = True  # 검색 후 리뷰 작성 및 추천 활성화
 
                         # 영화 및 장르 저장
                         movie_id = insert_movie_if_not_exists(tmdb_movie_details, tmdb_movie_credits)
@@ -254,10 +261,8 @@ else:
                             if st.button("리뷰 제출"):
                                 if review_text:
                                     sentiment = predict_sentiment(review_text)
-                                    save_review(st.session_state.user_id, movie_id, review_text, sentiment)
+                                    save_review(st.session_state.user_id, st.session_state.selected_movie_id, review_text, sentiment)
                                     st.success("리뷰가 저장되었습니다.")
-                                    # 리뷰 저장 후 페이지를 다시 렌더링하여 새로운 리뷰를 표시
-                                    st.experimental_rerun()
                                 else:
                                     st.error("리뷰를 작성해주세요.")
                         
@@ -268,21 +273,24 @@ else:
             else:
                 st.error("검색어를 입력하세요.")
 
-        # 영화가 선택된 경우에만 리뷰 작성 섹션 표시
-        if st.session_state.selected_movie_id and st.session_state.review_saved:
-            # 리뷰 저장 상태 초기화
-            st.session_state.review_saved = False
+        # 영화가 선택된 경우 리뷰 작성 및 추천 영화 표시
+        if st.session_state.selected_movie_id:
+            if st.session_state.review_saved:
+                st.session_state.review_saved = False  # 리뷰 저장 플래그 초기화
+                conn = get_db_connection()
+                try:
+                    with conn.cursor() as cur:
+                # 선택된 영화 제목 가져오기
+                        cur.execute("""
+                            SELECT movie_name 
+                            FROM MOVIE 
+                            WHERE movie_id = %s
+                        """, (st.session_state.selected_movie_id,))
+                        selected_movie = cur.fetchone()
+                        if selected_movie:
+                            movie_name = selected_movie['movie_name']
 
-            # 방금 리뷰한 영화의 이름 가져오기
-            conn = get_db_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT movie_name FROM MOVIE WHERE movie_id = %s", (st.session_state.selected_movie_id,))
-                    selected_movie = cur.fetchone()
-                    if selected_movie:
-                        movie_name = selected_movie['movie_name']
-
-                        # 최근에 저장한 리뷰의 감정 가져오기
+                        # 최근 리뷰 감정 가져오기
                         cur.execute("""
                             SELECT sentiment
                             FROM REVIEW
@@ -290,49 +298,63 @@ else:
                             ORDER BY review_id DESC LIMIT 1
                         """, (st.session_state.user_id, st.session_state.selected_movie_id))
                         review = cur.fetchone()
+
                         if review:
                             sentiment = review['sentiment']
                             if sentiment == "positive":
+                                # 긍정 리뷰: 비슷한 영화 추천
                                 st.subheader(f'"{movie_name}"와 비슷한 영화 추천')
-
-                                # 유사한 영화 추천
-                                recommended_movies = recommend_movies_based_on_genre_and_overview(st.session_state.selected_movie_id, limit=5)
+                                recommended_movies = recommend_movies_based_on_genre_and_overview(
+                                    st.session_state.selected_movie_id, limit=5
+                                )
                                 if recommended_movies:
                                     cols = st.columns(5)  # 5개의 열 생성
                                     for i, movie in enumerate(recommended_movies):
-                                        with cols[i % 5]:  # 5개씩 가로로 정렬
+                                        with cols[i % 5]:  # 5개씩 가로 정렬
                                             movie_details = get_tmdb_movie_details(movie['tmdb_id'])
                                             if movie_details and movie_details.get('poster_path'):
                                                 poster_url = f"https://image.tmdb.org/t/p/w500{movie_details['poster_path']}"
-                                                st.image(poster_url, use_container_width=True)  # 포스터 이미지
+                                                st.image(poster_url, use_container_width=True)
                                             else:
                                                 st.write("포스터 없음")
-                                            st.markdown(f"[**{movie['movie_name']}**](https://www.themoviedb.org/movie/{movie['tmdb_id']})", unsafe_allow_html=True)
+                                            st.markdown(
+                                                f"[**{movie['movie_name']}**](https://www.themoviedb.org/movie/{movie['tmdb_id']})",
+                                                unsafe_allow_html=True,
+                                            )
                                 else:
                                     st.write("추천할 영화가 없습니다.")
                             else:
-                                # 랜덤 영화 추천 (부정적인 리뷰 시)
+                                # 부정 리뷰: 랜덤 영화 추천
                                 st.subheader("이런 영화는 어떠신가요?")
-                                recommended_movies = recommend_random_movies(limit=5)
-                                if recommended_movies:
-                                    cols = st.columns(5)  # 5개의 열 생성
-                                    for i, movie in enumerate(recommended_movies):
-                                        with cols[i % 5]:  # 5개씩 가로로 정렬
-                                            # 영화 상세 정보 가져오기
+                                conn.execute("""
+                                    SELECT movie_name, tmdb_id
+                                    FROM movie_list
+                                    ORDER BY RAND()
+                                    LIMIT 5
+                                """)
+                                random_movies = conn.fetchall()
+                                if random_movies:
+                                    cols = st.columns(5)
+                                    for i, movie in enumerate(random_movies):
+                                        with cols[i % 5]:
                                             movie_details = get_tmdb_movie_details(movie['tmdb_id'])
                                             if movie_details and movie_details.get('poster_path'):
                                                 poster_url = f"https://image.tmdb.org/t/p/w500{movie_details['poster_path']}"
-                                                st.image(poster_url, use_container_width=True)  # 포스터 이미지
+                                                st.image(poster_url, use_container_width=True)
                                             else:
                                                 st.write("포스터 없음")
-                                            st.markdown(f"[**{movie['movie_name']}**](https://www.themoviedb.org/movie/{movie['tmdb_id']})", unsafe_allow_html=True)
+                                            st.markdown(
+                                                f"[**{movie['movie_name']}**](https://www.themoviedb.org/movie/{movie['tmdb_id']})",
+                                                unsafe_allow_html=True,
+                                            )
                                 else:
                                     st.write("추천할 영화가 없습니다.")
-                    else:
-                        st.error("선택된 영화의 이름을 가져오는 데 실패했습니다.")
-            finally:
-                conn.close()
+                        else:
+                            st.error("선택된 영화의 이름을 가져오는 데 실패했습니다.")
+                finally:
+                    conn.close()
         else:
+            # 로그인 후 첫 화면에서만 "오늘의 추천 영화" 표시
             st.subheader("오늘의 추천 영화")
             conn = get_db_connection()
             try:
@@ -350,12 +372,8 @@ else:
             cols = st.columns(5)
             for i, movie in enumerate(movies):
                 with cols[i]:
-                    st.markdown('<div class="movie-container">', unsafe_allow_html=True)
                     movie_details = get_tmdb_movie_details(movie['tmdb_id'])
                     if movie_details and movie_details.get('poster_path'):
-                        st.image(f"https://image.tmdb.org/t/p/w500{movie_details['poster_path']}", width=150)  # 포스터 크기 통일
-                    else:
-                        st.write("포스터 없음")
-                    st.markdown(f"<p class='movie-title'>{movie['movie_name']}</p>", unsafe_allow_html=True)  # 제목 왼쪽 정렬
+                        st.image(f"https://image.tmdb.org/t/p/w500{movie_details['poster_path']}", width=150)
+                    st.markdown(f"<p class='movie-title'>{movie['movie_name']}</p>", unsafe_allow_html=True)
                     st.markdown(f"[상세보기](https://www.themoviedb.org/movie/{movie['tmdb_id']})</p>", unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
