@@ -7,7 +7,10 @@ import bcrypt
 import random
 
 # 환경 변수 로드
-load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
+## 지현
+# load_dotenv(dotenv_path="C:\\Users\\you0m\\Desktop\\movie\\env_example.env")
+## 채린
+load_dotenv()
 
 DB_HOST = os.getenv('DB_HOST')
 DB_USER = os.getenv('DB_USER')
