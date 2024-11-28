@@ -238,7 +238,6 @@ else:
                                     for review in reviews:
                                         st.markdown(f"**{review['username']}님의 리뷰:**")
                                         st.write(review['review_text'])
-                                        st.markdown(f"_감정 분석 결과: {review['sentiment']}_")
                                         st.markdown("---")
                                 else:
                                     st.info("아직 이 영화에 대한 다른 사용자의 리뷰가 없습니다.")
