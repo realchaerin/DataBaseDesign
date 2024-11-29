@@ -42,7 +42,28 @@ from utils.api_fetch import (
 # CSS 스타일링
 st.markdown("""
 <style>
-body { margin: 0; padding: 0; }
+body {
+}
+[data-testid="stAppViewContainer"] {
+    background-color: #000000;
+    color: #FFFFFF;
+}
+/* 헤더 바 배경색 및 텍스트 색상 변경 */
+header[data-testid="stHeader"] {
+    background-color: #000000;
+}
+
+header[data-testid="stHeader"] * {
+    color: #FFFFFF;
+}
+
+.main-title {
+    text-align: center;
+    color: #B22222; /* 버튼과 동일한 빨간색 */
+    font-weight: bold;
+    font-size: 3rem; /* 원하는 크기로 조정 */
+}
+
 .navbar {
     display: flex; justify-content: flex-end; align-items: center;
     padding: 10px 20px; background-color: #f8f9fa;
@@ -68,11 +89,128 @@ body { margin: 0; padding: 0; }
 .movie-container {
     text-align: center; /* 전체 가운데 정렬 */
 }
+div.stButton > button {
+    background-color: #B22222; /* 버튼 배경색을 빨간색으로 설정 */
+    color: #FFFFFF; /* 버튼 글씨색을 하얀색으로 설정 */
+    border: none; /* 테두리 제거 */
+    padding: 0.5em 1em; /* 패딩 조절 */
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 1em;
+    margin: 0.2em;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+div.stButton > button:hover {
+    background-color: #B22222; /* 호버 시에도 색상 변화 없도록 */
+    color: #FFFFFF;
+}
+
+div.stButton > button:active {
+    background-color: #B22222; /* 클릭 시에도 색상 변화 없도록 */
+}
+div[class^='stTextInput'] > label > div[data-testid='stMarkdownContainer'] > p {
+    text-align: center; /* 레이블 중앙 정렬 */
+}
+
+div[class^='stTextInput'] {
+    width: 100% !important;
+}
+
+div[class^='stTextInput'] > div {
+    width: 100% !important;
+}
+
+div[class^='stTextInput'] input {
+    width: 100% !important;
+    text-align: left; /* 입력 텍스트 중앙 정렬 */
+}
+
+/* 제목 텍스트 중앙 정렬 */
+h1 {
+    text-align: center;
+}
+
+/* 입력 필드 레이블의 텍스트 색상을 하얀색으로 변경 */
+div[class^='stTextInput'] label p {
+    color: #FFFFFF;
+}
+
+/* 링크 스타일 변경 */
+a {
+    color: #FFFFFF !important;
+    text-decoration: none; /* 밑줄 제거 */
+}
+
+/* 링크에 마우스를 올렸을 때 스타일 유지 */
+a:hover {
+    color: #FFFFFF;
+    text-decoration: none;
+}
+            
+/* 사이드바 배경색 변경 */
+[data-testid="stSidebar"] {
+    background-color: #1E1E1E; /* 더 어두운 색상으로 변경 */
+}
+
+/* 사이드바 텍스트 색상 변경 */
+[data-testid="stSidebar"] * {
+    color: #FFFFFF; /* 텍스트를 하얀색으로 변경 */
+}
+
+.button-container {
+    display: flex;
+    justify-content: center; /* 중앙 정렬 */
+    gap: 10px; /* 버튼 사이 간격 */
+    margin-top: 20px; /* 위쪽 여백 */
+}    
+            
+/* 검색창 스타일 */
+.search-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.search-container .search-input {
+    width: 300px;
+    padding: 0.5em;
+    font-size: 1em;
+}
+
+.search-container .search-button {
+    background-color: #B22222;
+    color: #FFFFFF;
+    border: none;
+    padding: 0.5em 1em;
+    font-size: 1em;
+    cursor: pointer;
+    border-radius: 5px;
+    margin-left: 10px;
+}
+
+div.stButton {
+    text-align: center;
+}
+
+div[class^='stTextInput'] input {
+    width: 100% !important;
+    max-width: 300px; /* 최대 너비 설정 */
+    text-align: left;
+}        
+
+.input-container {
+    max-width: 300px;
+    margin: 0 auto; /* 중앙 정렬 */
+}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
-<div style="text-align: center; color: #8B0000; font-weight: bold; font-size: 2rem;">
+<div class="main-title">
     무비뭐봐🎬
 </div>
 """, unsafe_allow_html=True)
@@ -108,9 +246,10 @@ def display_user_reviews():
                 for review in reviews:
                     col1, col2 = st.columns([3, 1])
                     with col1:
+                        sentiment_kor = '좋아요' if review['sentiment'] == 'positive' else '싫어요'
                         st.markdown(f"**영화명:** {review['movie_name']}")
                         st.markdown(f"**리뷰:** {review['review_text']}")
-                        st.markdown(f"**감정 분석 결과:** {review['sentiment']}")
+                        st.markdown(f"해당 영화가 {sentiment_kor}")
                         st.markdown("---")
                     with col2:
                         # 영화 포스터 가져오기
@@ -134,13 +273,20 @@ def display_user_reviews():
 # 로그인/회원가입 처리
 if not st.session_state.get('logged_in', False):
     if st.session_state.get('show_signup', False):
-        st.header('회원가입')
-        new_user_id = st.text_input('사용자 아이디', key='new_user_id')
-        new_password = st.text_input('비밀번호', type='password', key='new_password')
-        confirm_password = st.text_input('비밀번호 확인', type='password', key='confirm_password')
-        username = st.text_input('이름', key='new_username')
+        st.markdown("<h2 style='text-align: center;'>회원가입</h2>", unsafe_allow_html=True)
 
-        if st.button('회원가입 하기'):
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            new_user_id = st.text_input('사용자 아이디', key='new_user_id')
+            new_password = st.text_input('비밀번호', type='password', key='new_password')
+            confirm_password = st.text_input('비밀번호 확인', type='password', key='confirm_password')
+            username = st.text_input('이름', key='new_username')
+
+        signup_submit_button = st.button('회원가입 하기', key='signup_submit')
+        login_redirect_button = st.button('이미 계정이 있나요? 로그인', key='login_redirect')
+
+
+        if signup_submit_button:
             if new_user_id and new_password and confirm_password and username:
                 if new_password != confirm_password:
                     st.error("비밀번호가 일치하지 않습니다.")
@@ -150,13 +296,22 @@ if not st.session_state.get('logged_in', False):
                     st.session_state.show_signup = False
             else:
                 st.error("모든 필드를 입력해주세요.")
-        if st.button('이미 계정이 있나요? 로그인'):
+        if login_redirect_button:
             st.session_state.show_signup = False
     else:
-        st.header('로그인')
-        user_id = st.text_input('사용자 아이디')
-        password = st.text_input('비밀번호', type='password')
-        if st.button('로그인'):
+        st.markdown("<h2 style='text-align: center;'>로그인</h2>", unsafe_allow_html=True)
+
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            user_id = st.text_input('사용자 아이디')
+            password = st.text_input('비밀번호', type='password')
+    
+
+        login_button = st.button('로그인', key='login_button')
+        signup_button = st.button('회원가입', key='signup_button')
+
+
+        if login_button:
             if user_id and password:
                 username = verify_user(user_id, password)
                 if username:
@@ -168,7 +323,7 @@ if not st.session_state.get('logged_in', False):
                     st.error("사용자 이름 또는 비밀번호가 올바르지 않습니다.")
             else:
                 st.error("모든 필드를 입력해주세요.")
-        if st.button('회원가입'):
+        if signup_button:
             st.session_state.show_signup = True
 else:
     # 세션 상태를 이용한 페이지 전환 처리
@@ -187,8 +342,15 @@ else:
         display_user_reviews()  # 마이페이지 표시
     else:
         # 영화 검색창
-        search_query = st.text_input("영화 검색", key="search_query", placeholder="영화 이름을 입력하세요")
-        if st.button("검색"):
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            search_col, button_col = st.columns([4, 1])
+            with search_col:
+                search_query = st.text_input("", key="search_query", placeholder="영화 이름을 입력하세요", label_visibility='collapsed')
+            with button_col:
+                search_button = st.button("검색", key="search_button")
+
+        if search_button:
             if search_query:
                 search_results = search_tmdb_movie(search_query)
                 if search_results and 'results' in search_results and len(search_results['results']) > 0:
